@@ -4,7 +4,6 @@ Date created:     07-02-2021
 Author:           Ben Dinsdale
 Company:          Sargent Electrical Services Ltd.
 Address:          Unit 35, Tokenspire Business Park, Beverley, East Yorkshire, HU17 0TB
-Tel:              01482 811655 
 Enviroment:       Written in Arduino IDE 1.8.0 with Arduino SAM boards added in boards
                   manager and BlueDot BMA400 library added from the Library Manager.
 Target/BOARD:     Arduino MKRZERO (for arduino config)
@@ -39,7 +38,7 @@ DEALINGS IN THE SOFTWARE.
 /*======================================================================================
 Ver.  Date:       Description  
 ----------------------------------------------------------------------------------------
-0.0.1 07/02/2021  *Toggle user LED with 
+0.0.1 07/02/2021  *Toggle user LED with user button
                   *send to USB Serial Terminal window 
                   *Switch modem on and off
 0.0.2 08/02/2021  *Send commands from teminal input to modem
@@ -49,7 +48,7 @@ Ver.  Date:       Description
                    the need for modification.
                   *Added TWI for Bosch BMA400 Accelerometer
                   *Added BlueDot BMA400 library & configured for 2g range @ 12.5Hz read
-                  *Added terminal send of BMA X, y, z data every second    
+                  *Added terminal send of BMA400 x, y, z data every second    
 0.0.3 09/02/2021  *Added MQTT test script to be typed into the terminal monitor
                   *Added GNSS test script to be typed into the terminal monitor       
                   *Added Licence information
@@ -68,9 +67,9 @@ window every second. This can be easly commented out if required at the top of t
 definitions section below.
 
 The ME310G1 Modem is directly linked to the terminal window, entering AT commands in the
-Terminal will result in them being sent to the Modem, the modems reponce will then be 
+Terminal will result in them being sent to the Modem, the modems reponse will then be 
 sent back to the terminal.
-SETTING FOR TERMINAL: Baud: 9600, 8 data bits, No parity, 1 stop bit, add carriage 
+SETTINGS FOR TERMINAL: Baud: 9600, 8 data bits, No parity, 1 stop bit, add carriage 
 return on to the of line on send.
 
 Below is an example test script for sending some data over MQTT using the Eclipse 
@@ -86,12 +85,15 @@ indoors (even near a window), a clear open view of the sky is best for testing.
 AT+CFUN=1                                                                               // ensure modem is on and running with all feature enabled
 AT+COPS=2                                                                               // disable network registation
 AT+CGDCONT=1,"IP","[APN from SIM provider]"                                             // define a PDP context for data connection using internet protocol
-// e.g. AT+CGDCONT=1,"IP","nxt17.net"
+// e.g. AT+CGDCONT=1,"IP","telit123.net"
 AT+COPS=0                                                                               // register to network (give it 30 secs or so to find a connection before next step)
 AT+COPS?                                                                                // check connection (should have some network data back)
 AT#SERVINFO                                                                             // check connection infomation (should have network and mast data back)
-AT#SGACT=1,1                                                                            // enable the access technology, connection (should spit back an IP address, may take a few seconds first) 
-AT+CGPADDR=1                                                                            // IP address can also be read back with this command when connected if SGACT doesn't give it
+// if you don't get a network connection within 2 minutes try rebooting the modem: 
+// AT#REBOOT then try again, if that doesn't work try forcing the connection to a known
+// Network such as: AT+COPS=4,1,"O2 - UK",8
+AT#SGACT=1,1                                                                            // Enable the access technology, connection (should spit back an IP address, may take a few seconds first)
+AT+CGPADDR=1                                                                            // IP address can also be read back with this command when connected if SGACT doesn't give it and returns ERROR
 //+++++++++++++++++++++++++++++++++
 // Setup MQTT
 AT#MQEN=1,1                                                                             // enable MQTT features on client instance 1
@@ -141,7 +143,7 @@ AT#GTPENA=0                                                                     
 //======================================================================================*/
 #include <Wire.h>                                                                       // For I2C / TWI marcos and definitions
 #include "BlueDot_BMA400.h"                                                             // For BMA400 Accelerometer macros and definitions
-BlueDot_BMA400 bma400 = BlueDot_BMA400();                                               // 
+BlueDot_BMA400 bma400 = BlueDot_BMA400();                                               
 //======================================================================================
 // DEFINITIONS
 //======================================================================================
@@ -187,13 +189,13 @@ bma400.parameter.outputDataRate = 0x05;                                         
 bma400.parameter.oversamplingRate = 0x03;                                               // over sampling rate 0 is lowest & lowest power 3 is highest and highest power
 
 // INITIALIZE THE ACCELEROMETER
-Serial.print(F("Communication with BMA400: "));                                        // print text to terminal
+Serial.print(F("Communication with BMA400: "));                                         // print text to terminal
 if (bma400.init()==0x90)Serial.println("Successful");                                   // if connected ok print to terminal 
 else Serial.println("Failed");                                                          // if failed prin to terminal
  
 // CHECK IF MODEM IS ALREADY ON IF NOT SWITCH ON
-Serial2.print("AT\r");                                                                  // Test write
-delay(250);                                                                             // wait for message back
+Serial2.print("AT\r");                                                                  // Test write, expect OK
+delay(250);                                                                             // allow time for response
 ME310str1=Serial2.readString();                                                         // read the modem message back
 if (ME310str1.indexOf("OK")==-1)                                                        // if sting doesn't contain OK
   {
@@ -203,8 +205,8 @@ if (ME310str1.indexOf("OK")==-1)                                                
   digitalWrite(ME310_on_off_wake,0);                                                    // switch off the modem 
   Serial.print("Modem Should be ON\n");
   delay(2000);                                                                          // a little time for modem to finish booting
-  Serial2.print("AT\r");                                                                // Test write
-  delay(250);                                                                           // wait for message back
+  Serial2.print("AT\r");                                                                // Test write, expect OK back
+  delay(250);                                                                           // allow some time for a response
   ME310str1=Serial2.readString();                                                       // read the modem message back
   if (ME310str1.indexOf("OK")==-1)                                                      // if sting doesn't contain OK
     {
@@ -229,7 +231,7 @@ void loop()                                                                     
 // Bi-directional debounce of User Button
 if (digitalRead(userButton)!=user_button) button_cnt++;                                 // if button state has changed start counting
 if (digitalRead(userButton)==user_button) button_cnt=0;                                 // if button state is the same as button varible reset counter
-if (button_cnt>5)user_button = digitalRead(userButton);                                 // make states match
+if (button_cnt>5)user_button = digitalRead(userButton);                                 // make states match as 25ms+ has passed
 // User LED state based on User button state
 if (!user_button) digitalWrite(userLED,1);                                              // if user button presed, LED on
 else digitalWrite(userLED,0);                                                           // if user button not pressed, LED off
@@ -257,7 +259,7 @@ if (second_cnt>=199)                                                            
   Serial.print(bma400.parameter.acc_x);                                                 // write X data to terminal
   Serial.print("\t");                                                                   // tab accross
   Serial.print(bma400.parameter.acc_y);                                                 // write Y data to terminal
-  Serial.print("\t");                                                                   // tav accross
+  Serial.print("\t");                                                                   // tab accross
   Serial.print(bma400.parameter.acc_z);                                                 // write Z data to terminal
   Serial.print("\n\r");                                                                 // new line & carriage return for next data set
   }
